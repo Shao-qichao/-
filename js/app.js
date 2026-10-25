@@ -449,6 +449,9 @@
     h += '<div class="settings-row"><div><div class="settings-label">导入备份</div>';
     h += '<div class="settings-hint">会覆盖当前全部数据</div></div>';
     h += '<button class="btn btn-sm" data-action="import" type="button">选择文件</button></div>';
+    h += '<div class="settings-row"><div><div class="settings-label">导入题单</div>';
+    h += '<div class="settings-hint">追加题目，自动跳过已有的</div></div>';
+    h += '<button class="btn btn-sm" data-action="import-problems" type="button">选择题单</button></div>';
     h += '<div class="settings-row"><div><div class="settings-label">清空数据</div>';
     h += '<div class="settings-hint">恢复初始知识点和起步题</div></div>';
     h += '<button class="btn btn-sm btn-danger" data-action="reset" type="button">清空</button></div></div>';
@@ -543,6 +546,8 @@
       exportData();
     } else if (action === 'import') {
       importData();
+    } else if (action === 'import-problems') {
+      importProblems();
     } else if (action === 'reset') {
       resetData();
     }
@@ -893,6 +898,57 @@
       state = Core.defaultState();
       persist(); render(false); toast('已重置');
     });
+  }
+
+  function importProblems() {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.onchange = function () {
+      var f = input.files && input.files[0];
+      if (!f) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(String(reader.result));
+          var items = Array.isArray(data) ? data : (data && data.problems);
+          if (!Array.isArray(items)) throw new Error('格式不对');
+          var seen = {};
+          state.resources.forEach(function (r) {
+            if (r.code) seen[String(r.code).toUpperCase()] = true;
+          });
+          var added = 0, skipped = 0;
+          items.forEach(function (it) {
+            var code = String((it && it.code) || '').trim().toUpperCase();
+            if (!code || seen[code]) { skipped++; return; }
+            var topicId = it.topicId && topicById(it.topicId) ? it.topicId : '';
+            state.resources.push({
+              id: 'r-' + code + '-' + Core.uid().slice(0, 6),
+              code: code,
+              title: it.title ? code + ' ' + String(it.title).replace(new RegExp('^' + code + '\\s*'), '') : code,
+              url: it.url || ('https://www.luogu.com.cn/problem/' + code),
+              type: 'problem',
+              source: it.source || '洛谷',
+              difficulty: it.difficulty || '入门',
+              status: 'todo',
+              note: '',
+              tags: Array.isArray(it.tags) ? it.tags : ['洛谷', '题单'],
+              topicId: topicId,
+              createdAt: new Date().toISOString(),
+              completedAt: null
+            });
+            seen[code] = true;
+            added++;
+          });
+          persist(); render(false);
+          toast('导入 ' + added + ' 题' + (skipped ? '，跳过 ' + skipped + ' 题' : ''));
+        } catch (e) {
+          toast('题单格式不对，需要 { problems: [...] }');
+        }
+      };
+      reader.readAsText(f);
+    };
+    input.click();
   }
 
   function syncCF() {
